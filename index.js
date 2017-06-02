@@ -103,7 +103,7 @@ function VueComponentMaker(_path){
             if( transformed.metadata.modules.imports.length > 0 ){
                 let imports = transformed.metadata.modules.imports;
                 let moduleImportPromises = imports.map(function({imported, source, specifiers}){
-
+                    console.log(imported, source, specifiers);
                 });
             }
 
