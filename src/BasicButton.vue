@@ -1,15 +1,21 @@
 <template>
-  <button>
-    {{ title }}
-  </button>
+  <div>
+      <button>{{ title || 'basicButton' }}</button>
+      <plat-button>t</plat-button>
+  </div>
 </template>
 
 <script>
-  import PlatButton from 'PlatButton.vue';
+  import PlatButtonSingle from './PlatButton.vue';
+  import {PlatButton3, test3} from './PlatButton2.vue';
+  import {PlatButton, test} from './PlatButton.vue';
+  import {PlatButtonComp} from './PlatButton2.vue';
 
   export default {
     components : {
-      'plat-button' : PlatButton,
+      'plat-button' : PlatButtonSingle,
+        'plat-button2' : test3,
+        'plat-button3' : PlatButton,
     },
     props: {
       title : {

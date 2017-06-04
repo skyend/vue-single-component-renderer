@@ -1,11 +1,18 @@
 <template>
   <button>
-    {{ title }}
+    {{ title || 'PlatButton' }}
+
+    <basic-btn></basic-btn>
   </button>
 </template>
 
 <script>
+  import BasicButton from './BasicButton.vue';
+
   export default {
+      components : {
+        'basic-btn' : BasicButton,
+      },
     props: {
         title : {
             type : String,

@@ -1,10 +1,11 @@
 import VueParser from 'vue-loader/lib/parser';
-import {transform} from 'babel-core';
+import {transform, transformFromAst} from 'babel-core';
 import path from 'path';
 import Vue from 'vue';
 import Promise from 'bluebird';
+import Program from 'ast-query';
+import ESPrima from 'esprima';
 import LRU from 'lru-cache';
-
 
 
 import {
@@ -14,43 +15,46 @@ import {
 import fs from 'fs';
 
 let vueComponentFile = path.join(process.cwd(), '/src/', 'BasicButton.vue');
-// fs.readFile(vueComponentFile, 'utf8', (err, data)=>{
-//     console.log(data);
-//
-//     let parsedVue = VueParser(data, vueComponentFile);
-//     let templateContent = parsedVue.template.content;
-//     console.log(parsedVue);
-//
-//     let transformed = transform(parsedVue.script.content, {
-//         presets : ['es2015','es2016','es2017']
-//     });
-//
-//
-//     console.log(JSON.stringify(transformed));
-//
-//     // let renderer = createRenderer({
-//     //     template : templateContent
-//     // })
-//
-//     console.log(createRenderer().renderToString(BB, (err, str)=>{
-//         console.log(err, str)
-//     }));
-//
-//
-//
-// });
 
 VueComponentMaker(vueComponentFile)
-    .then((component)=>{
-        // console.log(component);
+    .then((componentWrapObject) => {
+        console.log(componentWrapObject.component);
+
+        createRenderer().renderToString(componentWrapObject.component, (err, html)=>{
+            console.log(err, html);
+        })
     });
 
 
-function VueComponentMaker(_path){
-    return new Promise(( resolve, reject )=>{
-        fs.readFile(_path, 'utf8', (err, vueComponentContent)=>{
-            if( err ){
-                throw err;
+function VueComponentMaker(_path, named, dependencyGraph = []) {
+    return new Promise((resolve, reject) => {
+
+        if( dependencyGraph.indexOf(_path) > -1 ){
+
+            if( named ){
+                resolve({
+                    component : new Vue({
+                        template : '<span>Warn : '+named+'Circular dependency Component </span>'
+                    }),
+                    componentKey : named,
+                });
+            } else {
+                resolve({
+                    component : new Vue({
+                        template : '<span>Warn : '+named+'Circular dependency Component </span>'
+                    }),
+                });
+            }
+
+            return;
+        }
+
+
+        fs.readFile(_path, 'utf8', (err, vueComponentContent) => {
+            if (err) {
+                reject(err);
+                return;
+                // throw err;
             }
 
             /**
@@ -71,15 +75,6 @@ function VueComponentMaker(_path){
             let scriptContent = parts.script.content;
             let stylesContent = parts.styles.content;
 
-            let transformedScripts = transform(scriptContent, {
-                presets : ['es2015','es2016','es2017']
-            });
-
-            console.time('parse');
-            let dependentVueComponents = parseDependencyComponents(transformedScripts);
-            console.timeEnd('parse');
-
-            console.log(dependentVueComponents);
             /**
              * Transformed
              *  .ast
@@ -96,73 +91,197 @@ function VueComponentMaker(_path){
              *              .specifiers
              */
             let transformed = transform(scriptContent, {
-                presets : ['es2015','es2016','es2017']
+                presets: ['es2015', 'es2016', 'es2017']
             });
+            console.log(JSON.stringify(scriptContent));
+            console.log(transformed.code);
+
+            let program = Program(transformed.code);
+            // console.log('component objectExpression',
+            //     program.assignment("exports.default").value().key('components'));
+
+
+            let componentUseExpression = program.assignment("exports.default").value().key('components');
+            let componentUseObjectExpression = null;
+            if( componentUseExpression.type === 'CallExpression' ){
+                componentUseObjectExpression = componentUseExpression.arguments[0];
+            } else if( componentUseExpression.type === 'ObjectExpression' ) {
+                if(
+                    componentUseExpression.node &&
+                    componentUseExpression.node.type === 'ObjectExpression'
+                ){
+                    componentUseObjectExpression = componentUseExpression.node;
+                }
+            }
+            // console.log(JSON.stringify(componentUseObjectExpression));
+            let keyValueSet = keyValueArrayFromObjectExpression(componentUseObjectExpression);
+            keyValueSet = keyValueSet.map(([key, valueNode]) => [key,expectedExpressionString(valueNode)])
+            // console.log( keyValueSet );
+
+            let componentImportUsingMapArray = keyValueSet.map(([key, componentReferenceLexical])=>{
+                let vueComponentFilepath = null;
+                let refTokens = componentReferenceLexical.split('.');
+
+                let componentStoredVarNode = program.var(refTokens[0]).nodes[0];
+
+                if( refTokens[1] === 'default' ){
+                    if(
+                        componentStoredVarNode.init &&
+                        componentStoredVarNode.init.type === 'CallExpression'
+                    ){
+
+                        if(
+                            componentStoredVarNode.init.callee.type === 'Identifier' &&
+                            componentStoredVarNode.init.callee.name === '_interopRequireDefault'
+                        ) {
+                            componentStoredVarNode = program.var(
+                                componentStoredVarNode.init.arguments[0].name
+                            ).nodes[0];
+
+                            if(
+                                componentStoredVarNode.init &&
+                                componentStoredVarNode.init.type === 'CallExpression'
+                            ){
+                                if (
+                                    componentStoredVarNode.init.callee.type === 'Identifier' &&
+                                    componentStoredVarNode.init.callee.name === 'require'
+                                ){
+                                    vueComponentFilepath = componentStoredVarNode.init.arguments[0].value;
+                                }
+                            }
+                        } else if (
+                            componentStoredVarNode.init.callee.type === 'Identifier' &&
+                            componentStoredVarNode.init.callee.name === 'require'
+                        ){
+                            /// Damn
+                        }
+                    }
+                }
+
+                return {
+                    componentKey : key,
+                    componentReferenceLexical : componentReferenceLexical,
+                    vueComponentFilepath,
+                }
+            });
+
+            // console.log('import ',
+            //     program.assignment());
+
+            // console.time('parse');
+            // let dependentVueComponents = parseDependencyComponents(transformed);
+            // console.timeEnd('parse');
+            // console.timeEnd('parse');
+            //
+            // console.log(dependentVueComponents);
             // console.log(transformed.metadata)
 
-            if( transformed.metadata.modules.imports.length > 0 ){
-                let imports = transformed.metadata.modules.imports;
-                let moduleImportPromises = imports.map(function({imported, source, specifiers}){
-                    console.log(imported, source, specifiers);
+            if (componentImportUsingMapArray.length > 0) {
+                let moduleImportPromises = componentImportUsingMapArray
+                    .map(function (importUsingMap) {
+
+                        return new Promise((resolve, reject)=>{
+                            if( importUsingMap.vueComponentFilepath === null ){
+                                resolve({
+                                    component : Vue.component(importUsingMap.componentKey, {
+                                        template : '<span>No Preview Area</span>',
+                                    }),
+                                    accumlatedStyles : '',
+                                    componentKey : importUsingMap.componentKey,
+                                })
+                            } else {
+                                let importComponentPath = path.resolve(path.dirname(_path), importUsingMap.vueComponentFilepath);
+                                VueComponentMaker(importComponentPath, importUsingMap.componentKey, [...dependencyGraph, _path])
+                                    .then(({component, accumlatedStyles, componentKey})=>{
+                                    console.log('child success')
+                                    resolve({
+                                        component ,
+                                        accumlatedStyles,
+                                        componentKey ,
+                                    });
+                                })
+                            }
+                        });
+                    });
+
+                console.log('why?',moduleImportPromises);
+                Promise.all(moduleImportPromises)
+                    .spread((componentWraps) => {
+                        console.log('spread', componentWraps)
+
+                        let componentDict = {};
+                        let styles = stylesContent || '';
+                        for(let i = 0 ; i < componentWraps.length; i++ ){
+                            let componentWrap = componentWraps[i];
+                            componentDict[componentWrap.compnentKey] = componentWrap.component;
+                            styles += '\n' + componentWrap.accumlatedStyles;
+                        }
+
+                        let Comp = new Vue({
+                            components: componentDict,
+                            template: templateContent,
+                        });
+
+
+                        resolve({
+                            component: Comp,
+                            accumlatedStyles: styles,
+                            componentKey : named,
+                        });
+                    });
+            } else {
+                let Comp;
+                if( named ){
+                    Comp = Vue.component(named , {
+                        template: templateContent,
+                    });
+                } else {
+                    Comp = new Vue('',{
+                        template: templateContent,
+                    });
+                }
+
+
+
+                resolve({
+                    component: Comp,
+                    accumlatedStyles: stylesContent || '',
+                    componentKey : named,
                 });
             }
-
-            let LComp = Vue.component('comp',{
-                template:'<div> heelo LCOmp </div>',
-            });
-
-            let RComp = Vue.component('comp',{
-                template:'<div> heelo RCOmp </div>',
-            });
-
-            let Comp = Vue.component('',{
-                components : {
-                    comp : RComp,
-                },
-                template:'<div><comp></comp></div>'
-            })
-
-            // createRenderer().renderToString(new Comp({}), (err, html)=>{
-            //     console.log(err, html);
-            // })
-
-            resolve({
-                component : Comp,
-                accumlatedStyles : stylesContent,
-            })
         });
     });
 }
 
 
-function parseDependencyComponents(vueComponentScriptPartContent){
+function parseDependencyComponents(vueComponentScriptPartContent) {
     // console.log(vueComponentScriptPartContent.code);
     // console.log(vueComponentScriptPartContent.ast);
     let ast = vueComponentScriptPartContent.ast;
     let programBody = ast.program.body;
-    let expressionStatements = programBody.filter((term)=>{
+    let expressionStatements = programBody.filter((term) => {
         return term.type === 'ExpressionStatement';
     });
 
-    let nextExpressions = expressionStatements.map((stateExp)=>{
+    let nextExpressions = expressionStatements.map((stateExp) => {
         let exp = stateExp.expression;
-        if( exp.type === 'AssignmentExpression' ){
+        if (exp.type === 'AssignmentExpression') {
             let leftExp = exp.left;
             let rightExp = exp.right;
 
-            if(
+            if (
                 leftExp.type === 'MemberExpression' &&
                 rightExp.type === 'ObjectExpression'
-            ){
+            ) {
                 let leftObject = leftExp.object;
                 let leftProperty = leftExp.property;
 
-                if(
+                if (
                     leftObject.type === 'Identifier' &&
                     leftObject.name === 'exports' &&
                     leftProperty.type === 'Identifier' &&
                     leftProperty.name === 'default'
-                ){
+                ) {
 
                     // return ObjectExpression
                     // exports.default = <{ ... }>;
@@ -173,28 +292,30 @@ function parseDependencyComponents(vueComponentScriptPartContent){
         return null;
     });
 
-
+    // console.log('ObjectExpression',console.dir(nextExpressions[1].prototype));
     nextExpressions = nextExpressions.filter((exp) => !!exp);
 
     // ObjectExpression
     nextExpressions = nextExpressions.map((exp) => {
         let properties = exp.properties;
+
+        console.log(JSON.stringify(properties));
         let propertyExpressionAsComponent = null;
-        for(let i = 0; i < properties.length; i++ ){
+        for (let i = 0; i < properties.length; i++) {
             let prop = properties[i];
             let propKeyNode = prop.key;
 
-            if( propKeyNode.type === 'Identifier' && propKeyNode.name === 'components' ){
+            if (propKeyNode.type === 'Identifier' && propKeyNode.name === 'components') {
                 propertyExpressionAsComponent = prop;
                 break;
             }
         }
 
-        if( propertyExpressionAsComponent ){
+        if (propertyExpressionAsComponent) {
             let propertyValueExp = propertyExpressionAsComponent.value;
 
-            if( propertyValueExp.type === 'ObjectExpression' ){
-
+            if (propertyValueExp.type === 'ObjectExpression') {
+                console.log('Component ObjectExpression');
 
                 // ObjectExpression
                 // exports.default = {
@@ -210,9 +331,9 @@ function parseDependencyComponents(vueComponentScriptPartContent){
         return null;
     });
 
-    nextExpressions = nextExpressions.filter((exp)=>!!exp);
+    nextExpressions = nextExpressions.filter((exp) => !!exp);
 
-    if( nextExpressions.length === 0 ){
+    if (nextExpressions.length === 0) {
         return [];
     }
 
@@ -220,22 +341,55 @@ function parseDependencyComponents(vueComponentScriptPartContent){
 
     let properties = i_thinkFinalExpression_is_that.properties;
 
-    return properties.map((propertyExp)=>{
+    return properties.map((propertyExp) => {
         let propertyValueExpression = propertyExp.value;
-        if( propertyValueExpression.type === 'MemberExpression' ){
+        if (propertyValueExpression.type === 'MemberExpression') {
             let objectFieldExpression = propertyValueExpression.object;
             let propertyFieldExpression = propertyValueExpression.property;
 
-            if(
+            if (
                 objectFieldExpression.type === 'Identifier' &&
                 propertyFieldExpression.type === 'Identifier'
-            ){
+            ) {
                 return objectFieldExpression.name + '.' + propertyFieldExpression.name;
             }
-        } else if( propertyValueExpression.type === 'Identifier' ){
+        } else if (propertyValueExpression.type === 'Identifier') {
             return propertyValueExpression.name;
         }
 
         return null;
-    }).filter((componentDefined)=> !!componentDefined);
+    }).filter((componentDefined) => !!componentDefined);
+}
+
+
+function keyValueArrayFromObjectExpression(objectExpression){
+    console.log(objectExpression);
+    if( objectExpression.type === 'ObjectExpression'){
+        let properties = objectExpression.properties;
+
+        return properties.map(function (prop) {
+            return [prop.key.value, prop.value];
+        });
+    }
+
+    throw new Error("argument[0] must be ObjectExpression");
+}
+
+
+function expectedExpressionString(expressionNode){
+    if(
+        expressionNode.type === 'MemberExpression' &&
+        expressionNode.object.type === 'Identifier' &&
+        expressionNode.property.type === 'Identifier'
+    ){
+        return expressionNode.object.name + '.' + expressionNode.property.name;
+    }
+
+    throw new Error(`expectedExpressionString error : unexpected expressionNode.
+    \n${expressionNode.type} 
+    \n${JSON.stringify(expressionNode)}\n`)
+}
+
+function getArgumentsFromCallExpression(callExpressionNode){
+    return callExpressionNode.arguments;
 }
