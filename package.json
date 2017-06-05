@@ -1,6 +1,6 @@
 {
   "name": "vue-single-component-html-renderer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "vue researching",
   "main": "index.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "theskyend0@gmail.com",
+  "homepage": "https://github.com/skyend/vue-single-component-renderer",
   "license": "MIT",
   "dependencies": {
     "ast-query": "^2.0.0",
