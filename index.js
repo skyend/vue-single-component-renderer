@@ -1,30 +1,39 @@
 import VueParser from 'vue-loader/lib/parser';
 import {transform, transformFromAst} from 'babel-core';
 import path from 'path';
+import fs from 'fs';
 import Vue from 'vue';
 import Promise from 'bluebird';
 import Program from 'ast-query';
-import ESPrima from 'esprima';
 import LRU from 'lru-cache';
-
 
 import {
     createRenderer
 } from 'vue-server-renderer';
 
-import fs from 'fs';
 
-let vueComponentFile = path.join(process.cwd(), '/src/', 'BasicButton.vue');
 
-VueComponentMaker(vueComponentFile)
-    .then((componentWrapObject) => {
-        console.log(componentWrapObject.component);
 
-        createRenderer().renderToString(componentWrapObject.component, (err, html)=>{
-            console.log(err, html);
-        })
+export default function renderComponent(componentPath){
+    return new Promise((resolve, reject)=>{
+        VueComponentMaker(componentPath)
+            .then((componentWrapObject) => {
+
+                createRenderer().renderToString(new Vue(componentWrapObject.component), (err, html)=>{
+                    if( err ){
+                        reject(err);
+                    } else {
+                        resolve({
+                            html : html,
+                            style : componentWrapObject.accumlatedStyles,
+                        });
+                    }
+                })
+            }, (err)=>{
+                reject(err);
+            });
     });
-
+}
 
 function VueComponentMaker(_path, named, dependencyGraph = []) {
     return new Promise((resolve, reject) => {
@@ -33,16 +42,16 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
 
             if( named ){
                 resolve({
-                    component : new Vue({
-                        template : '<span>Warn : '+named+'Circular dependency Component </span>'
-                    }),
+                    component : {
+                        template : '<span>Warn : '+named+' Circular dependency Component </span>'
+                    },
                     componentKey : named,
                 });
             } else {
                 resolve({
-                    component : new Vue({
-                        template : '<span>Warn : '+named+'Circular dependency Component </span>'
-                    }),
+                    component : {
+                        template : '<span>Warn :Circular dependency Component </span>'
+                    },
                 });
             }
 
@@ -73,8 +82,10 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
 
             let templateContent = parts.template.content;
             let scriptContent = parts.script.content;
-            let stylesContent = parts.styles.content;
-
+            let stylesContent = '';
+            for(let i =0; i < parts.styles.length; i++ ){
+                stylesContent += parts.styles[i].content.trim();
+            }
             /**
              * Transformed
              *  .ast
@@ -93,8 +104,8 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
             let transformed = transform(scriptContent, {
                 presets: ['es2015', 'es2016', 'es2017']
             });
-            console.log(JSON.stringify(scriptContent));
-            console.log(transformed.code);
+            // console.log(JSON.stringify(scriptContent));
+            // console.log(transformed.code);
 
             let program = Program(transformed.code);
             // console.log('component objectExpression',
@@ -183,9 +194,9 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
                         return new Promise((resolve, reject)=>{
                             if( importUsingMap.vueComponentFilepath === null ){
                                 resolve({
-                                    component : Vue.component(importUsingMap.componentKey, {
+                                    component : {
                                         template : '<span>No Preview Area</span>',
-                                    }),
+                                    },
                                     accumlatedStyles : '',
                                     componentKey : importUsingMap.componentKey,
                                 })
@@ -193,7 +204,7 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
                                 let importComponentPath = path.resolve(path.dirname(_path), importUsingMap.vueComponentFilepath);
                                 VueComponentMaker(importComponentPath, importUsingMap.componentKey, [...dependencyGraph, _path])
                                     .then(({component, accumlatedStyles, componentKey})=>{
-                                    console.log('child success')
+                                    // console.log('child success')
                                     resolve({
                                         component ,
                                         accumlatedStyles,
@@ -204,23 +215,24 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
                         });
                     });
 
-                console.log('why?',moduleImportPromises);
+                // console.log('why?',moduleImportPromises);
                 Promise.all(moduleImportPromises)
-                    .spread((componentWraps) => {
-                        console.log('spread', componentWraps)
+                    .spread(function(componentWraps){
+
 
                         let componentDict = {};
                         let styles = stylesContent || '';
-                        for(let i = 0 ; i < componentWraps.length; i++ ){
-                            let componentWrap = componentWraps[i];
-                            componentDict[componentWrap.compnentKey] = componentWrap.component;
-                            styles += '\n' + componentWrap.accumlatedStyles;
+                        for(let i = 0 ; i < arguments.length; i++ ){
+                            let componentWrap = arguments[i];
+                            componentDict[componentWrap.componentKey] = componentWrap.component;
+                            if( componentWrap.accumlatedStyles )
+                                styles += '\n' + componentWrap.accumlatedStyles;
                         }
 
-                        let Comp = new Vue({
+                        let Comp = {
                             components: componentDict,
                             template: templateContent,
-                        });
+                        };
 
 
                         resolve({
@@ -232,13 +244,13 @@ function VueComponentMaker(_path, named, dependencyGraph = []) {
             } else {
                 let Comp;
                 if( named ){
-                    Comp = Vue.component(named , {
+                    Comp = {
                         template: templateContent,
-                    });
+                    };
                 } else {
-                    Comp = new Vue('',{
+                    Comp = {
                         template: templateContent,
-                    });
+                    };
                 }
 
 
@@ -299,7 +311,7 @@ function parseDependencyComponents(vueComponentScriptPartContent) {
     nextExpressions = nextExpressions.map((exp) => {
         let properties = exp.properties;
 
-        console.log(JSON.stringify(properties));
+        // console.log(JSON.stringify(properties));
         let propertyExpressionAsComponent = null;
         for (let i = 0; i < properties.length; i++) {
             let prop = properties[i];
@@ -315,7 +327,7 @@ function parseDependencyComponents(vueComponentScriptPartContent) {
             let propertyValueExp = propertyExpressionAsComponent.value;
 
             if (propertyValueExp.type === 'ObjectExpression') {
-                console.log('Component ObjectExpression');
+                // console.log('Component ObjectExpression');
 
                 // ObjectExpression
                 // exports.default = {
@@ -363,7 +375,7 @@ function parseDependencyComponents(vueComponentScriptPartContent) {
 
 
 function keyValueArrayFromObjectExpression(objectExpression){
-    console.log(objectExpression);
+    // console.log(objectExpression);
     if( objectExpression.type === 'ObjectExpression'){
         let properties = objectExpression.properties;
 

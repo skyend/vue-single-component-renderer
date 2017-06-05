@@ -1,8 +1,8 @@
 <template>
-  <button>
+  <button class="plat-button">
     {{ title || 'PlatButton' }}
 
-    <basic-btn></basic-btn>
+    <circular-basic-button></circular-basic-button>
   </button>
 </template>
 
@@ -11,7 +11,7 @@
 
   export default {
       components : {
-        'basic-btn' : BasicButton,
+        'circular-basic-button' : BasicButton,
       },
     props: {
         title : {
@@ -23,7 +23,7 @@
 </script>
 
 <style>
-  button {
+  .plat-button {
     background-color: #000;
     color:#fff;
     border:0;
