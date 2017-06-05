@@ -1,11 +1,12 @@
 {
   "name": "vue-single-component-html-renderer",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "vue researching",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "start": "babel-node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "babel ./index.js --presets babel-preset-es2015  --out-dir dist"
   },
   "author": "theskyend0@gmail.com",
   "homepage": "https://github.com/skyend/vue-single-component-renderer",
