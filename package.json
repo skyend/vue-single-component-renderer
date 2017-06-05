@@ -1,6 +1,6 @@
 {
   "name": "vue-single-component-html-renderer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "vue researching",
   "main": "index.js",
   "scripts": {

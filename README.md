@@ -10,7 +10,7 @@ npm install vue-single-component-html-renderer
 import renderer from 'vue-single-component-html-renderer';
 
 renderer('/path/to/vue.vue')
-    .then( ( html, style ) => {
+    .then( ( {html, style} ) => {
         console.log(html);
         console.log(style);
     });
